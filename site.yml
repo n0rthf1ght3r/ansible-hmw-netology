@@ -1,0 +1,73 @@
+---
+# 1) ClickHouse хост(ы)
+- name: ClickHouse server
+  hosts: clickhouse
+  become: true
+  roles:
+    - role: clickhouse
+  tags: [clickhouse]
+
+# 2) Vector агент(ы)
+- name: Vector agent
+  hosts: vector
+  become: true
+  roles:
+    - role: vector
+  tags: [vector]
+
+# 3) Lighthouse UI
+- name: Lighthouse UI
+  hosts: lighthouse
+  become: true
+
+  # Зависимости/переменные для Lighthouse:
+  # Берём адрес первого хоста из группы clickhouse
+  vars:
+    clickhouse_host: "{{ hostvars[groups['clickhouse'][0]].ansible_host | default(groups['clickhouse'][0]) }}"
+    clickhouse_port: 8123
+    lighthouse_server_name: "_"
+    lighthouse_listen_port: 80
+
+  # pre_tasks: системные требования для роли
+  pre_tasks:
+    - name: Ensure git is installed (Debian)
+      apt:
+        name: git
+        update_cache: yes
+        state: present
+      when: ansible_os_family == "Debian"
+
+    - name: Ensure git is installed (RedHat)
+      yum:
+        name: git
+        state: present
+      when: ansible_os_family == "RedHat"
+
+  roles:
+    - role: lighthouse
+
+  # Дополнительные задачи, совмещённые с roles (пример — открыть порт HTTP/8123)
+  tasks:
+    - name: Open HTTP in firewalld (RHEL family)
+      firewalld:
+        service: http
+        permanent: true
+        state: enabled
+        immediate: true
+      when: ansible_os_family == "RedHat"
+
+    - name: Open 8123/tcp (ClickHouse HTTP) in firewalld (RHEL family)
+      firewalld:
+        port: 8123/tcp
+        permanent: true
+        state: enabled
+        immediate: true
+      when: ansible_os_family == "RedHat"
+
+    - name: Allow HTTP via UFW (Debian family)
+      ufw:
+        rule: allow
+        name: "Nginx Full"
+      when: ansible_os_family == "Debian"
+
+  tags: [lighthouse]
